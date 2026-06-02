@@ -6,8 +6,36 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function extractSvg(text: string): string | null {
-  const match = text.match(/<svg[\s\S]*?<\/svg>/i);
-  return match ? match[0] : null;
+  // Strip markdown code fences the model might wrap the SVG in.
+  const cleaned = text
+    .replace(/^```(?:svg|xml|html)?\s*\n/i, "")
+    .replace(/\n```\s*$/i, "")
+    .replace(/```/g, "");
+
+  // First, try to find a complete <svg>...</svg> block.
+  const match = cleaned.match(/<svg\b[\s\S]*?<\/svg>/i);
+  if (match) return match[0];
+
+  // Fallback: the model may have been cut off mid-output. Try to salvage
+  // everything from the first <svg> opening tag onward so the user at
+  // least gets a partial preview.
+  const opening = cleaned.match(/<svg\b[\s\S]*/i);
+  if (opening) {
+    let partial = opening[0].trim();
+    if (!partial.endsWith(">")) partial += ">";
+    if (!/xmlns=/.test(partial)) {
+      partial = partial.replace(
+        /<svg/i,
+        '<svg xmlns="http://www.w3.org/2000/svg"',
+      );
+    }
+    if (!/viewBox=/.test(partial)) {
+      partial = partial.replace(/<svg/i, '<svg viewBox="0 0 128 128"');
+    }
+    return partial;
+  }
+
+  return null;
 }
 
 export function downloadSvg(svg: string, filename: string) {

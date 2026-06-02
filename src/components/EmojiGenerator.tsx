@@ -41,6 +41,14 @@ const EXAMPLES = [
   "拿宝剑的饭团勇者",
 ];
 
+const PRESETS = [
+  { label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+  { label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  { label: "通义千问", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus" },
+  { label: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash" },
+  { label: "Ollama(本地)", baseUrl: "http://localhost:11434/v1", model: "qwen2.5:7b" },
+];
+
 export default function EmojiGenerator() {
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState<EmojiStyle>("kawaii");
@@ -121,7 +129,9 @@ export default function EmojiGenerator() {
       }
 
       if (!lastSvg) {
-        throw new Error("Model did not return an SVG. Try a different prompt.");
+        throw new Error(
+          "模型没按规矩输出 SVG。\n建议:\n• 换更听话的模型(OpenAI gpt-4o-mini、DeepSeek-V3、Claude Haiku 都稳)\n• 提示词写具体一点,别太抽象\n• 点「重新生成」多试几次",
+        );
       }
       setFinalSvg(lastSvg);
       setHistory((cur) => appendHistory(cur, prompt.trim(), style, lastSvg!));
@@ -650,6 +660,29 @@ function SettingsDialog({
           onChange={(v) => setDraft({ ...draft, baseUrl: v })}
           placeholder="https://api.openai.com/v1"
         />
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            快速预设
+          </label>
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() =>
+                  setDraft({
+                    ...draft,
+                    baseUrl: p.baseUrl,
+                    model: p.model,
+                  })
+                }
+                className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs text-zinc-600 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-300 dark:hover:border-rose-400/40 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <Field
           label="Model"
           value={draft.model}
