@@ -17,6 +17,7 @@ import {
   Image as ImageIcon,
   RefreshCw,
   AlertCircle,
+  Zap,
 } from "lucide-react";
 import { STYLES, type EmojiStyle, type Generation } from "@/lib/styles";
 import {
@@ -622,6 +623,12 @@ function SettingsDialog({
 }) {
   const [draft, setDraft] = useState(value);
   const [show, setShow] = useState(false);
+  type TestState =
+    | { kind: "idle" }
+    | { kind: "testing" }
+    | { kind: "ok"; latencyMs: number; sample?: string }
+    | { kind: "err"; message: string };
+  const [testState, setTestState] = useState<TestState>({ kind: "idle" });
 
   // ESC to close (clicking outside is intentionally disabled to prevent
   // accidental dismissal).
@@ -632,6 +639,36 @@ function SettingsDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  async function runTest() {
+    setTestState({ kind: "testing" });
+    try {
+      const res = await fetch("/api/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: draft.apiKey || undefined,
+          baseUrl: draft.baseUrl || undefined,
+          model: draft.model || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setTestState({
+          kind: "ok",
+          latencyMs: data.latencyMs,
+          sample: data.sample,
+        });
+      } else {
+        setTestState({ kind: "err", message: data.error || "未知错误" });
+      }
+    } catch (e) {
+      setTestState({
+        kind: "err",
+        message: e instanceof Error ? e.message : "请求失败",
+      });
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
@@ -715,6 +752,23 @@ function SettingsDialog({
           </p>
         </div>
 
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={runTest}
+            disabled={testState.kind === "testing"}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-rose-400/40 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+          >
+            {testState.kind === "testing" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Zap className="h-3.5 w-3.5" />
+            )}
+            测试连接
+          </button>
+          <TestResult state={testState} />
+        </div>
+
         <div className="mt-6 flex items-center justify-between gap-2">
           <span className="text-[11px] text-zinc-400">
             按 <kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] dark:border-zinc-700 dark:bg-zinc-800">ESC</kbd> 关闭
@@ -768,5 +822,43 @@ function Field({
         className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-200 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:border-rose-400 dark:focus:ring-rose-900/40"
       />
     </div>
+  );
+}
+
+type TestResultState =
+  | { kind: "idle" }
+  | { kind: "testing" }
+  | { kind: "ok"; latencyMs: number; sample?: string }
+  | { kind: "err"; message: string };
+
+function TestResult({ state }: { state: TestResultState }) {
+  if (state.kind === "idle") {
+    return (
+      <span className="text-[11px] text-zinc-400">
+        验证 Key / URL / Model 是否可用
+      </span>
+    );
+  }
+  if (state.kind === "testing") {
+    return <span className="text-[11px] text-zinc-500">正在测试…</span>;
+  }
+  if (state.kind === "ok") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+        <Check className="h-3.5 w-3.5" />
+        连接成功 · {state.latencyMs}ms
+        {state.sample && (
+          <span className="text-zinc-400">· 响应「{state.sample}」</span>
+        )}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="text-[11px] text-rose-600 dark:text-rose-400"
+      title={state.message}
+    >
+      ❌ {state.message}
+    </span>
   );
 }
