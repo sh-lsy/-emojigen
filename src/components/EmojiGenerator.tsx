@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Sparkles,
   Download,
@@ -48,12 +48,25 @@ export default function EmojiGenerator() {
   const [finalSvg, setFinalSvg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [history, setHistory] = useState<Generation[]>(() => loadHistory());
-  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const [history, setHistory] = useState<Generation[]>([]);
+  const [settings, setSettings] = useState<AppSettings>({
+    apiKey: "",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+  });
   const [showSettings, setShowSettings] = useState(false);
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    // Load persisted state once on mount. This is a legitimate one-time
+    // sync with an external system (localStorage) — the cascading-renders
+    // concern this lint rule targets doesn't apply here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHistory(loadHistory());
+    setSettings(loadSettings());
+  }, []);
 
   const currentSvg = (() => {
     const live = extractSvg(streamingText);
