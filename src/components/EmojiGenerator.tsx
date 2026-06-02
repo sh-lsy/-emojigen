@@ -27,9 +27,12 @@ import {
   clearHistory,
   loadSettings,
   saveSettings,
+  loadCustomPresets,
+  saveCustomPresets,
   type Settings as AppSettings,
+  type CustomPreset,
 } from "@/lib/storage";
-import { cn, downloadPng, downloadSvg, extractSvg } from "@/lib/utils";
+import { cn, downloadPng, downloadSvg, extractSvg, genId } from "@/lib/utils";
 
 const EXAMPLES = [
   "一只喝咖啡的猫头鹰",
@@ -44,7 +47,8 @@ const EXAMPLES = [
 
 const PRESETS = [
   { label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
-  { label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  { label: "DeepSeek V4-Flash ⭐", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-flash" },
+  { label: "DeepSeek V4-Pro", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-pro" },
   { label: "通义千问", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus" },
   { label: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash" },
   { label: "Ollama(本地)", baseUrl: "http://localhost:11434/v1", model: "qwen2.5:7b" },
@@ -630,6 +634,42 @@ function SettingsDialog({
     | { kind: "err"; message: string };
   const [testState, setTestState] = useState<TestState>({ kind: "idle" });
 
+  const [customPresets, setCustomPresets] = useState<CustomPreset[]>([]);
+  useEffect(() => {
+    // One-time sync with external localStorage on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCustomPresets(loadCustomPresets());
+  }, []);
+
+  function addCurrentAsPreset() {
+    const url = draft.baseUrl.trim();
+    const model = draft.model.trim();
+    if (!url || !model) {
+      alert("Base URL 和 Model 都不能为空才能保存为预设");
+      return;
+    }
+    const label = window.prompt(
+      "给这个预设起个名字(例:SenseNova、Minimax、本地 Qwen):",
+      new URL(url).hostname,
+    );
+    if (!label || !label.trim()) return;
+    const item: CustomPreset = {
+      id: genId(),
+      label: label.trim().slice(0, 24),
+      baseUrl: url,
+      model,
+    };
+    const next = [item, ...customPresets].slice(0, 20);
+    setCustomPresets(next);
+    saveCustomPresets(next);
+  }
+
+  function removeCustomPreset(id: string) {
+    const next = customPresets.filter((p) => p.id !== id);
+    setCustomPresets(next);
+    saveCustomPresets(next);
+  }
+
   // ESC to close (clicking outside is intentionally disabled to prevent
   // accidental dismissal).
   useEffect(() => {
@@ -696,12 +736,13 @@ function SettingsDialog({
           value={draft.baseUrl}
           onChange={(v) => setDraft({ ...draft, baseUrl: v })}
           placeholder="https://api.openai.com/v1"
+          hint="支持任意 OpenAI 兼容服务,例:商汤日日新 /token.sensenova.cn/v1、Minimax、硅基智能等"
         />
         <div>
           <label className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
             快速预设
           </label>
-          <div className="mb-3 flex flex-wrap gap-1.5">
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
             {PRESETS.map((p) => (
               <button
                 key={p.label}
@@ -718,13 +759,65 @@ function SettingsDialog({
                 {p.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => {
+                setDraft({ ...draft, baseUrl: "", model: "" });
+              }}
+              className="rounded-full border border-dashed border-zinc-300 bg-transparent px-3 py-1 text-xs text-zinc-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-rose-400/40 dark:hover:text-rose-300"
+            >
+              + Custom
+            </button>
           </div>
+          {customPresets.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-wide text-zinc-400">
+                我的
+              </span>
+              {customPresets.map((p) => (
+                <span
+                  key={p.id}
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        baseUrl: p.baseUrl,
+                        model: p.model,
+                      })
+                    }
+                    className="px-2.5 py-1 text-xs text-amber-700 hover:text-amber-900 dark:text-amber-200 dark:hover:text-amber-50"
+                    title={p.baseUrl}
+                  >
+                    {p.label}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeCustomPreset(p.id)}
+                    className="px-1 text-amber-400 hover:text-rose-500"
+                    title="删除"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={addCurrentAsPreset}
+            className="mb-3 text-[11px] text-rose-600 hover:underline dark:text-rose-400"
+          >
+            + 把当前配置存为我的预设
+          </button>
         </div>
         <Field
           label="Model"
           value={draft.model}
           onChange={(v) => setDraft({ ...draft, model: v })}
-          placeholder="gpt-4o-mini"
+          placeholder="deepseek-v4-flash"
         />
         <div>
           <label className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
@@ -803,11 +896,13 @@ function Field({
   value,
   onChange,
   placeholder,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  hint?: string;
 }) {
   return (
     <div className="mb-3">
@@ -821,6 +916,7 @@ function Field({
         placeholder={placeholder}
         className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-200 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:border-rose-400 dark:focus:ring-rose-900/40"
       />
+      {hint && <p className="mt-1 text-[11px] text-zinc-400">{hint}</p>}
     </div>
   );
 }

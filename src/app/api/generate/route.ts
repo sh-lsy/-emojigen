@@ -37,8 +37,9 @@ export async function POST(req: Request) {
 
   const serverKey =
     process.env.OPENAI_API_KEY || process.env.EMOJIGEN_API_KEY || "";
-  const serverBase = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
-  const serverModel = process.env.EMOJIGEN_MODEL || "gpt-4o-mini";
+  const serverBase =
+    process.env.OPENAI_BASE_URL || "https://api.deepseek.com/v1";
+  const serverModel = process.env.EMOJIGEN_MODEL || "deepseek-v4-flash";
 
   const effectiveKey = apiKey?.trim() || serverKey;
   if (!effectiveKey) {

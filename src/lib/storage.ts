@@ -15,8 +15,8 @@ const SETTINGS_KEY = "emojigen:settings:v1";
 
 const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
-  baseUrl: "https://api.openai.com/v1",
-  model: "gpt-4o-mini",
+  baseUrl: "https://api.deepseek.com/v1",
+  model: "deepseek-v4-flash",
 };
 
 export function loadHistory(): Generation[] {
@@ -84,6 +84,32 @@ export function loadSettings(): Settings {
 export function saveSettings(s: Settings) {
   if (typeof window === "undefined") return;
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+}
+
+export interface CustomPreset {
+  id: string;
+  label: string;
+  baseUrl: string;
+  model: string;
+}
+
+const CUSTOM_PRESETS_KEY = "emojigen:custom-presets:v1";
+
+export function loadCustomPresets(): CustomPreset[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CUSTOM_PRESETS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as CustomPreset[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomPresets(presets: CustomPreset[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(presets));
 }
 
 export function styleName(s: EmojiStyle): string {
