@@ -613,15 +613,19 @@ function SettingsDialog({
   const [draft, setDraft] = useState(value);
   const [show, setShow] = useState(false);
 
+  // ESC to close (clicking outside is intentionally disabled to prevent
+  // accidental dismissal).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-3xl border border-black/5 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-900"
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-3xl border border-black/5 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-900">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
             API 设置
@@ -678,24 +682,29 @@ function SettingsDialog({
           </p>
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-zinc-200 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onChange(draft);
-              onClose();
-            }}
-            className="rounded-xl bg-gradient-to-r from-rose-500 to-amber-500 px-4 py-2 text-sm font-medium text-white hover:from-rose-600 hover:to-amber-600"
-          >
-            保存
-          </button>
+        <div className="mt-6 flex items-center justify-between gap-2">
+          <span className="text-[11px] text-zinc-400">
+            按 <kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] dark:border-zinc-700 dark:bg-zinc-800">ESC</kbd> 关闭
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-zinc-200 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onChange(draft);
+                onClose();
+              }}
+              className="rounded-xl bg-gradient-to-r from-rose-500 to-amber-500 px-4 py-2 text-sm font-medium text-white hover:from-rose-600 hover:to-amber-600"
+            >
+              保存
+            </button>
+          </div>
         </div>
       </div>
     </div>
