@@ -69,9 +69,17 @@ export async function POST(req: Request) {
       system: buildSystemPrompt(style),
       prompt: buildUserPrompt(prompt.trim(), style),
       temperature: 0.9,
+      // Forward the client abort signal to the upstream call. Without
+      // this, aborting a request on the client only kills the local
+      // stream — the upstream connection stays open and exhausts the
+      // connection pool, so the *next* request hangs forever.
+      abortSignal: req.signal,
     });
     return result.toTextStreamResponse();
   } catch (err) {
+    if ((err as { name?: string })?.name === "AbortError") {
+      return new Response(null, { status: 499 });
+    }
     const msg = err instanceof Error ? err.message : "Upstream error";
     return Response.json({ error: msg }, { status: 502 });
   }

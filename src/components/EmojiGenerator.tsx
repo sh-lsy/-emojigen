@@ -95,9 +95,15 @@ export default function EmojiGenerator() {
     setStreamingText("");
     setLoading(true);
 
-    const ctrl = new AbortController();
+    // Abort any in-flight request first, then wait a tick for the previous
+    // stream's resources to fully release before opening a new one. Without
+    // this small gap, the next fetch can race the cleanup and hang.
     abortRef.current?.abort();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const ctrl = new AbortController();
     abortRef.current = ctrl;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
     try {
       const res = await fetch("/api/generate", {
@@ -119,7 +125,7 @@ export default function EmojiGenerator() {
       }
       if (!res.body) throw new Error("No response body");
 
-      const reader = res.body.getReader();
+      reader = res.body.getReader();
       const decoder = new TextDecoder();
       let acc = "";
       let lastSvg: string | null = null;
@@ -135,7 +141,7 @@ export default function EmojiGenerator() {
 
       if (!lastSvg) {
         throw new Error(
-          "模型没按规矩输出 SVG。\n建议:\n• 换更听话的模型(OpenAI gpt-4o-mini、DeepSeek-V3、Claude Haiku 都稳)\n• 提示词写具体一点,别太抽象\n• 点「重新生成」多试几次",
+          "模型没按规矩输出 SVG。\n建议:\n• 换更听话的模型(OpenAI gpt-4o-mini、DeepSeek-V4、Claude Haiku 都稳)\n• 提示词写具体一点,别太抽象\n• 点「重新生成」多试几次",
         );
       }
       setFinalSvg(lastSvg);
@@ -145,8 +151,15 @@ export default function EmojiGenerator() {
       const msg = e instanceof Error ? e.message : "Something went wrong";
       setError(msg);
     } finally {
+      // Explicitly release the reader so the underlying connection is
+      // freed immediately, instead of waiting for GC.
+      try {
+        await reader?.cancel();
+      } catch {
+        /* noop */
+      }
       setLoading(false);
-      abortRef.current = null;
+      if (abortRef.current === ctrl) abortRef.current = null;
     }
   }
 
