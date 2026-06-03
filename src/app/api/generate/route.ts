@@ -62,7 +62,10 @@ export async function POST(req: Request) {
 
   try {
     const result = streamText({
-      model: client(effectiveModel),
+      // Force Chat Completions API so third-party OpenAI-compatible
+      // endpoints (DeepSeek, SenseNova, Ollama, etc.) all work.
+      // `client(model)` would default to OpenAI's new Responses API.
+      model: client.chat(effectiveModel),
       system: buildSystemPrompt(style),
       prompt: buildUserPrompt(prompt.trim(), style),
       temperature: 0.9,

@@ -45,8 +45,9 @@ export async function POST(req: Request) {
   const start = Date.now();
   try {
     // Tiny request: just 5 tokens. Verifies auth, base URL, model, network.
+    // Use .chat() to force Chat Completions API for third-party compatibility.
     const result = await generateText({
-      model: client(effectiveModel),
+      model: client.chat(effectiveModel),
       prompt: "ok",
       maxOutputTokens: 5,
     });
