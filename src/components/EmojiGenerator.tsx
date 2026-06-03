@@ -88,6 +88,7 @@ export default function EmojiGenerator() {
   const [bytesReceived, setBytesReceived] = useState(0);
   const [firstTokenReceived, setFirstTokenReceived] = useState(false);
   const [history, setHistory] = useState<Generation[]>([]);
+  const [exampleButtons, setExampleButtons] = useState<React.ReactNode[]>([]);
   const [settings, setSettings] = useState<AppSettings>({
     apiKey: "",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
@@ -137,8 +138,10 @@ export default function EmojiGenerator() {
 
   const canGenerate = prompt.trim().length > 0 && !loading;
 
-  const exampleButtons = useMemo(
-    () =>
+  useEffect(() => {
+    // Generate random examples on client only, to avoid SSR hydration mismatch
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExampleButtons(
       [0, 1, 2, 3].map((i) => {
         const ex = randomExample();
         return (
@@ -152,8 +155,8 @@ export default function EmojiGenerator() {
           </button>
         );
       }),
-    [],
-  );
+    );
+  }, []);
 
   async function generate() {
     if (!canGenerate) return;
@@ -1221,9 +1224,6 @@ function SettingsDialog({
           <div className="mb-1.5 flex items-center justify-between">
             <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
               我的配置
-              <span className="ml-1.5 text-[10px] font-normal text-zinc-400">
-                (含 API Key)
-              </span>
             </label>
             <button
               type="button"
@@ -1324,29 +1324,39 @@ function SettingsDialog({
           placeholder="deepseek-v4-flash"
         />
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
-            API Key
-          </label>
-          <div className="relative">
-            <input
-              type={show ? "text" : "password"}
-              value={draft.apiKey}
-              onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
-              placeholder="sk-..."
-              autoComplete="off"
-              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 pr-16 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-200 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:border-rose-400 dark:focus:ring-rose-900/40"
-            />
-            <button
-              type="button"
-              onClick={() => setShow((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            >
-              {show ? "隐藏" : "显示"}
-            </button>
-          </div>
-          <p className="mt-1 text-[11px] text-zinc-400">
-            留空则尝试使用服务端环境变量 <code>OPENAI_API_KEY</code>。
-          </p>
+          {draft.baseUrl === "https://open.bigmodel.cn/api/paas/v4" &&
+          draft.model === "glm-4-flash" &&
+          !draft.apiKey ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+              <span className="font-medium">智谱 GLM-4-Flash</span> 使用服务端默认 API Key，无需填写。
+            </div>
+          ) : (
+            <>
+              <label className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                API Key
+              </label>
+              <div className="relative">
+                <input
+                  type={show ? "text" : "password"}
+                  value={draft.apiKey}
+                  onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
+                  placeholder="sk-..."
+                  autoComplete="off"
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 pr-16 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-200 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:border-rose-400 dark:focus:ring-rose-900/40"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShow((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  {show ? "隐藏" : "显示"}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-zinc-400">
+                留空则尝试使用服务端环境变量 <code>OPENAI_API_KEY</code>。
+              </p>
+            </>
+          )}
         </div>
 
         <div className="mt-3 flex items-center gap-2">
