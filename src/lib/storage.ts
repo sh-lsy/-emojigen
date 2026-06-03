@@ -15,8 +15,8 @@ const SETTINGS_KEY = "emojigen:settings:v1";
 
 const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
-  baseUrl: "https://api.deepseek.com/v1",
-  model: "deepseek-v4-flash",
+  baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+  model: "glm-4-flash",
 };
 
 export function loadHistory(): Generation[] {
@@ -86,30 +86,59 @@ export function saveSettings(s: Settings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
 }
 
-export interface CustomPreset {
+export interface ModelConfig {
   id: string;
-  label: string;
+  name: string;
   baseUrl: string;
   model: string;
+  apiKey: string;
 }
 
-const CUSTOM_PRESETS_KEY = "emojigen:custom-presets:v1";
+const CONFIGS_KEY = "emojigen:configs:v1";
+const MAX_CONFIGS = 20;
 
-export function loadCustomPresets(): CustomPreset[] {
+export function loadConfigs(): ModelConfig[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(CUSTOM_PRESETS_KEY);
+    const raw = localStorage.getItem(CONFIGS_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as CustomPreset[];
+    const parsed = JSON.parse(raw) as ModelConfig[];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
-export function saveCustomPresets(presets: CustomPreset[]) {
+export function saveConfigs(items: ModelConfig[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(presets));
+  const trimmed = items.slice(0, MAX_CONFIGS);
+  localStorage.setItem(CONFIGS_KEY, JSON.stringify(trimmed));
+}
+
+export function addConfig(
+  current: ModelConfig[],
+  input: Omit<ModelConfig, "id">,
+): ModelConfig[] {
+  const item: ModelConfig = { id: genId(), ...input };
+  const next = [item, ...current].slice(0, MAX_CONFIGS);
+  saveConfigs(next);
+  return next;
+}
+
+export function removeConfig(current: ModelConfig[], id: string): ModelConfig[] {
+  const next = current.filter((c) => c.id !== id);
+  saveConfigs(next);
+  return next;
+}
+
+export function renameConfig(
+  current: ModelConfig[],
+  id: string,
+  name: string,
+): ModelConfig[] {
+  const next = current.map((c) => (c.id === id ? { ...c, name } : c));
+  saveConfigs(next);
+  return next;
 }
 
 export function styleName(s: EmojiStyle): string {

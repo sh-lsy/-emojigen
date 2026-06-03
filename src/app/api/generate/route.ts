@@ -1,10 +1,8 @@
-import { streamText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
 import { buildSystemPrompt, buildUserPrompt } from "@/lib/prompt";
 import { STYLE_BY_ID, type EmojiStyle } from "@/lib/styles";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 interface GenerateRequest {
   prompt: string;
@@ -38,8 +36,8 @@ export async function POST(req: Request) {
   const serverKey =
     process.env.OPENAI_API_KEY || process.env.EMOJIGEN_API_KEY || "";
   const serverBase =
-    process.env.OPENAI_BASE_URL || "https://api.deepseek.com/v1";
-  const serverModel = process.env.EMOJIGEN_MODEL || "deepseek-v4-flash";
+    process.env.OPENAI_BASE_URL || "https://open.bigmodel.cn/api/paas/v4";
+  const serverModel = process.env.EMOJIGEN_MODEL || "glm-4-flash";
 
   const effectiveKey = apiKey?.trim() || serverKey;
   if (!effectiveKey) {
@@ -55,32 +53,155 @@ export async function POST(req: Request) {
   const effectiveBase = baseUrl?.trim() || serverBase;
   const effectiveModel = model?.trim() || serverModel;
 
-  const client = createOpenAI({
-    apiKey: effectiveKey,
-    baseURL: effectiveBase,
-  });
+  // --- Direct upstream fetch + SSE parsing ---
+  // Bypasses Vercel AI SDK to properly capture reasoning_content from
+  // DeepSeek V4 and other providers that use this field.
+  const upstreamUrl = `${effectiveBase.replace(/\/+$/, "")}/chat/completions`;
 
+  let upstreamRes: Response;
   try {
-    const result = streamText({
-      // Force Chat Completions API so third-party OpenAI-compatible
-      // endpoints (DeepSeek, SenseNova, Ollama, etc.) all work.
-      // `client(model)` would default to OpenAI's new Responses API.
-      model: client.chat(effectiveModel),
-      system: buildSystemPrompt(style),
-      prompt: buildUserPrompt(prompt.trim(), style),
-      temperature: 0.9,
-      // Forward the client abort signal to the upstream call. Without
-      // this, aborting a request on the client only kills the local
-      // stream — the upstream connection stays open and exhausts the
-      // connection pool, so the *next* request hangs forever.
-      abortSignal: req.signal,
+    upstreamRes = await fetch(upstreamUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${effectiveKey}`,
+      },
+      body: JSON.stringify({
+        model: effectiveModel,
+        messages: [
+          { role: "system", content: buildSystemPrompt(style) },
+          { role: "user", content: buildUserPrompt(prompt.trim(), style) },
+        ],
+        temperature: 0.9,
+        stream: true,
+      }),
+      signal: req.signal,
     });
-    return result.toTextStreamResponse();
   } catch (err) {
     if ((err as { name?: string })?.name === "AbortError") {
       return new Response(null, { status: 499 });
     }
-    const msg = err instanceof Error ? err.message : "Upstream error";
+    const msg = err instanceof Error ? err.message : "Upstream fetch error";
     return Response.json({ error: msg }, { status: 502 });
   }
+
+  if (!upstreamRes.ok) {
+    const errText = await upstreamRes.text().catch(() => "");
+    return Response.json(
+      { error: `上游 API 返回 ${upstreamRes.status}: ${errText.slice(0, 300)}` },
+      { status: 502 },
+    );
+  }
+
+  if (!upstreamRes.body) {
+    return Response.json({ error: "Upstream returned no body" }, { status: 502 });
+  }
+
+  const encoder = new TextEncoder();
+  const reqStart = Date.now();
+  const reader = upstreamRes.body.getReader();
+  const decoder = new TextDecoder();
+
+  const customStream = new ReadableStream({
+    async start(controller) {
+      // Send heartbeat immediately (padded to >4KB to break proxy buffers)
+      const pad = " ".repeat(4096);
+      controller.enqueue(
+        encoder.encode(
+          JSON.stringify({ t: "h", c: "", _pad: pad }) + "\n",
+        ),
+      );
+
+      // Keepalive heartbeat every 15s
+      const keepalive = setInterval(() => {
+        try {
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ t: "h", c: "" }) + "\n"),
+          );
+        } catch { /* stream already closed */ }
+      }, 15_000);
+
+      let buffer = "";
+      let firstToken = true;
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith("data:")) continue;
+
+            const payload = trimmed.slice(5).trim();
+            if (payload === "[DONE]") continue;
+
+            try {
+              const json = JSON.parse(payload);
+              const delta = json.choices?.[0]?.delta;
+              if (!delta) continue;
+
+              // Capture reasoning_content (DeepSeek V4, etc.)
+              const reasoning = delta.reasoning_content || delta.reasoning;
+              if (reasoning) {
+                if (firstToken) {
+                  firstToken = false;
+                  console.log(`[api/generate] first reasoning token after ${Date.now() - reqStart}ms`);
+                }
+                controller.enqueue(
+                  encoder.encode(JSON.stringify({ t: "r", c: reasoning }) + "\n"),
+                );
+              }
+
+              // Capture text content
+              const content = delta.content;
+              if (content) {
+                if (firstToken) {
+                  firstToken = false;
+                  console.log(`[api/generate] first text token after ${Date.now() - reqStart}ms`);
+                }
+                controller.enqueue(
+                  encoder.encode(JSON.stringify({ t: "t", c: content }) + "\n"),
+                );
+              }
+            } catch {
+              // Skip unparseable lines
+            }
+          }
+        }
+
+        const total = Date.now() - reqStart;
+        console.log(`[api/generate] stream complete in ${total}ms`);
+      } catch (err) {
+        if ((err as { name?: string })?.name === "AbortError") return;
+        controller.enqueue(
+          encoder.encode(
+            JSON.stringify({
+              t: "e",
+              c: err instanceof Error ? err.message : "Stream read error",
+            }) + "\n",
+          ),
+        );
+      } finally {
+        clearInterval(keepalive);
+        try { controller.close(); } catch { /* already closed */ }
+      }
+    },
+    cancel() {
+      try { reader.cancel(); } catch { /* noop */ }
+    },
+  });
+
+  return new Response(customStream, {
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
