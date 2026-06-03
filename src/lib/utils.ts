@@ -14,7 +14,7 @@ export function extractSvg(text: string): string | null {
 
   // First, try to find a complete <svg>...</svg> block.
   const match = cleaned.match(/<svg\b[\s\S]*?<\/svg>/i);
-  if (match) return match[0];
+  if (match) return sanitizeSvg(match[0]);
 
   // Fallback: the model may have been cut off mid-output. Try to salvage
   // everything from the first <svg> opening tag onward so the user at
@@ -32,10 +32,46 @@ export function extractSvg(text: string): string | null {
     if (!/viewBox=/.test(partial)) {
       partial = partial.replace(/<svg/i, '<svg viewBox="0 0 128 128"');
     }
-    return partial;
+    return sanitizeSvg(partial);
   }
 
   return null;
+}
+
+/**
+ * Sanitize SVG content to prevent XSS attacks.
+ * Removes dangerous elements like <script>, event handlers, and external references.
+ */
+export function sanitizeSvg(svg: string): string {
+  // Remove <script> tags and their content
+  let clean = svg.replace(/<script\b[\s\S]*?<\/script>/gi, "");
+
+  // Remove event handlers (onload, onerror, onclick, etc.)
+  clean = clean.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, "");
+  clean = clean.replace(/\s+on\w+\s*=\s*[^\s>]*/gi, "");
+
+  // Remove javascript: URLs
+  clean = clean.replace(/javascript\s*:/gi, "");
+
+  // Remove data: URLs (except for safe image formats)
+  clean = clean.replace(
+    /href\s*=\s*["']data:(?!image\/(png|jpeg|gif|webp))/gi,
+    'href="',
+  );
+
+  // Remove external URL references in xlink:href and href
+  clean = clean.replace(
+    /(xlink:href|href)\s*=\s*["']https?:\/\/[^"']*["']/gi,
+    '$1=""',
+  );
+
+  // Remove <foreignObject> which can contain HTML
+  clean = clean.replace(/<foreignObject\b[\s\S]*?<\/foreignObject>/gi, "");
+
+  // Remove <use> with external references
+  clean = clean.replace(/<use\b[^>]*xlink:href\s*=\s*["']https?:[^"']*["'][^>]*\/?>/gi, "");
+
+  return clean;
 }
 
 export function downloadSvg(svg: string, filename: string) {

@@ -4,6 +4,46 @@ import { STYLE_BY_ID, type EmojiStyle } from "@/lib/styles";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
+// Maximum prompt length to prevent abuse
+const MAX_PROMPT_LENGTH = 500;
+
+// Whitelist of allowed upstream API hosts to prevent SSRF attacks
+const ALLOWED_HOSTS = [
+  // OpenAI
+  "api.openai.com",
+  // DeepSeek
+  "api.deepseek.com",
+  // Zhipu (GLM)
+  "open.bigmodel.cn",
+  // Alibaba (Qwen)
+  "dashscope.aliyuncs.com",
+  // SenseNova
+  "token.sensenova.cn",
+  // OpenRouter
+  "openrouter.ai",
+  // SiliconFlow
+  "api.siliconflow.cn",
+  // Minimax
+  "api.minimax.chat",
+  // Local development
+  "localhost",
+  "127.0.0.1",
+];
+
+function isAllowedUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    // Only allow http/https protocols
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    // Check host against whitelist
+    return ALLOWED_HOSTS.some(
+      (h) => url.hostname === h || url.hostname.endsWith(`.${h}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
 interface GenerateRequest {
   prompt: string;
   style: EmojiStyle;
@@ -29,6 +69,12 @@ export async function POST(req: Request) {
   if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
     return Response.json({ error: "Prompt is required" }, { status: 400 });
   }
+  if (prompt.trim().length > MAX_PROMPT_LENGTH) {
+    return Response.json(
+      { error: `Prompt too long (max ${MAX_PROMPT_LENGTH} characters)` },
+      { status: 400 },
+    );
+  }
   if (!isStyle(style)) {
     return Response.json({ error: "Unknown style" }, { status: 400 });
   }
@@ -52,6 +98,14 @@ export async function POST(req: Request) {
 
   const effectiveBase = baseUrl?.trim() || serverBase;
   const effectiveModel = model?.trim() || serverModel;
+
+  // SSRF protection: validate upstream URL
+  if (!isAllowedUrl(effectiveBase)) {
+    return Response.json(
+      { error: `Upstream URL not allowed. Allowed hosts: ${ALLOWED_HOSTS.join(", ")}` },
+      { status: 403 },
+    );
+  }
 
   // --- Direct upstream fetch + SSE parsing ---
   // Bypasses Vercel AI SDK to properly capture reasoning_content from

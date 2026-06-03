@@ -1,12 +1,35 @@
-import { generateText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
-
 export const runtime = "nodejs";
 
 interface TestRequest {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+}
+
+// Same whitelist as generate route
+const ALLOWED_HOSTS = [
+  "api.openai.com",
+  "api.deepseek.com",
+  "open.bigmodel.cn",
+  "dashscope.aliyuncs.com",
+  "token.sensenova.cn",
+  "openrouter.ai",
+  "api.siliconflow.cn",
+  "api.minimax.chat",
+  "localhost",
+  "127.0.0.1",
+];
+
+function isAllowedUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    return ALLOWED_HOSTS.some(
+      (h) => url.hostname === h || url.hostname.endsWith(`.${h}`),
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(req: Request) {
@@ -20,8 +43,8 @@ export async function POST(req: Request) {
   const serverKey =
     process.env.OPENAI_API_KEY || process.env.EMOJIGEN_API_KEY || "";
   const serverBase =
-    process.env.OPENAI_BASE_URL || "https://api.deepseek.com/v1";
-  const serverModel = process.env.EMOJIGEN_MODEL || "deepseek-v4-flash";
+    process.env.OPENAI_BASE_URL || "https://open.bigmodel.cn/api/paas/v4";
+  const serverModel = process.env.EMOJIGEN_MODEL || "glm-4-flash";
 
   const effectiveKey = body.apiKey?.trim() || serverKey;
   if (!effectiveKey) {
@@ -37,26 +60,56 @@ export async function POST(req: Request) {
   const effectiveBase = body.baseUrl?.trim() || serverBase;
   const effectiveModel = body.model?.trim() || serverModel;
 
-  const client = createOpenAI({
-    apiKey: effectiveKey,
-    baseURL: effectiveBase,
-  });
+  if (!isAllowedUrl(effectiveBase)) {
+    return Response.json(
+      { ok: false, error: `URL 不在白名单中: ${effectiveBase}` },
+      { status: 403 },
+    );
+  }
+
+  const upstreamUrl = `${effectiveBase.replace(/\/+$/, "")}/chat/completions`;
 
   const start = Date.now();
   try {
     // Tiny request: just 5 tokens. Verifies auth, base URL, model, network.
-    // Use .chat() to force Chat Completions API for third-party compatibility.
-    const result = await generateText({
-      model: client.chat(effectiveModel),
-      prompt: "ok",
-      maxOutputTokens: 5,
+    const res = await fetch(upstreamUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${effectiveKey}`,
+      },
+      body: JSON.stringify({
+        model: effectiveModel,
+        messages: [{ role: "user", content: "ok" }],
+        max_tokens: 5,
+        stream: false,
+      }),
     });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      return Response.json({
+        ok: false,
+        latencyMs: Date.now() - start,
+        error: humanizeError(
+          `${res.status}: ${errText.slice(0, 200)}`,
+          effectiveBase,
+          effectiveModel,
+        ),
+        model: effectiveModel,
+        baseUrl: effectiveBase,
+      });
+    }
+
+    const json = await res.json();
+    const sample = json.choices?.[0]?.message?.content ?? "";
+
     return Response.json({
       ok: true,
       latencyMs: Date.now() - start,
       model: effectiveModel,
       baseUrl: effectiveBase,
-      sample: result.text.slice(0, 40),
+      sample: sample.slice(0, 40),
     });
   } catch (err) {
     const raw = err instanceof Error ? err.message : "Unknown error";
