@@ -1,5 +1,7 @@
 import { buildSystemPrompt, buildUserPrompt } from "@/lib/prompt";
 import { STYLE_BY_ID, type EmojiStyle } from "@/lib/styles";
+import { getUserBySessionToken, readSessionCookie } from "@/lib/auth";
+import { isPresetModel, getPresetByModel } from "@/lib/presets";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -50,6 +52,7 @@ interface GenerateRequest {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  reasoningEffort?: "low" | "medium" | "high" | "none";
 }
 
 function isStyle(s: unknown): s is EmojiStyle {
@@ -64,7 +67,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { prompt, style, apiKey, baseUrl, model } = body;
+  const { prompt, style, apiKey, baseUrl, model, reasoningEffort } = body;
 
   if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
     return Response.json({ error: "Prompt is required" }, { status: 400 });
@@ -82,8 +85,8 @@ export async function POST(req: Request) {
   const serverKey =
     process.env.OPENAI_API_KEY || process.env.EMOJIGEN_API_KEY || "";
   const serverBase =
-    process.env.OPENAI_BASE_URL || "https://open.bigmodel.cn/api/paas/v4";
-  const serverModel = process.env.EMOJIGEN_MODEL || "glm-4-flash";
+    process.env.OPENAI_BASE_URL || "https://token.sensenova.cn/v1";
+  const serverModel = process.env.EMOJIGEN_MODEL || "deepseek-v4-flash";
 
   const effectiveKey = apiKey?.trim() || serverKey;
   if (!effectiveKey) {
@@ -98,6 +101,25 @@ export async function POST(req: Request) {
 
   const effectiveBase = baseUrl?.trim() || serverBase;
   const effectiveModel = model?.trim() || serverModel;
+  const effectiveReasoningEffort = reasoningEffort || undefined;
+
+  // Auth gate: only applies to preset models that are marked requireAuth.
+  // User-customized model names (not in PRESETS) are not checked.
+  if (isPresetModel(effectiveModel)) {
+    const preset = getPresetByModel(effectiveModel);
+    if (preset?.requireAuth) {
+      const token = readSessionCookie(req);
+      const user = await getUserBySessionToken(token);
+      if (!user) {
+        return Response.json(
+          {
+            error: `模型 "${effectiveModel}" 需要登录后才能使用。请先登录账号。`,
+          },
+          { status: 401 },
+        );
+      }
+    }
+  }
 
   // SSRF protection: validate upstream URL
   if (!isAllowedUrl(effectiveBase)) {
@@ -127,6 +149,9 @@ export async function POST(req: Request) {
           { role: "user", content: buildUserPrompt(prompt.trim(), style) },
         ],
         temperature: 0.9,
+        ...(effectiveReasoningEffort
+          ? { reasoning_effort: effectiveReasoningEffort }
+          : {}),
         stream: true,
       }),
       signal: req.signal,

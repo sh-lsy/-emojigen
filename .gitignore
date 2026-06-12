@@ -42,6 +42,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# user data (auth)
+/data/users.json
+/data/sessions.json
+
 # typescript
 *.tsbuildinfo
 tsconfig.tsbuildinfo

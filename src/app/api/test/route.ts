@@ -1,4 +1,6 @@
 export const runtime = "nodejs";
+import { getUserBySessionToken, readSessionCookie } from "@/lib/auth";
+import { isPresetModel, getPresetByModel } from "@/lib/presets";
 
 interface TestRequest {
   apiKey?: string;
@@ -43,8 +45,8 @@ export async function POST(req: Request) {
   const serverKey =
     process.env.OPENAI_API_KEY || process.env.EMOJIGEN_API_KEY || "";
   const serverBase =
-    process.env.OPENAI_BASE_URL || "https://open.bigmodel.cn/api/paas/v4";
-  const serverModel = process.env.EMOJIGEN_MODEL || "glm-4-flash";
+    process.env.OPENAI_BASE_URL || "https://token.sensenova.cn/v1";
+  const serverModel = process.env.EMOJIGEN_MODEL || "deepseek-v4-flash";
 
   const effectiveKey = body.apiKey?.trim() || serverKey;
   if (!effectiveKey) {
@@ -59,6 +61,25 @@ export async function POST(req: Request) {
 
   const effectiveBase = body.baseUrl?.trim() || serverBase;
   const effectiveModel = body.model?.trim() || serverModel;
+
+  if (isPresetModel(effectiveModel)) {
+    const preset = getPresetByModel(effectiveModel);
+    if (preset?.requireAuth) {
+      const token = readSessionCookie(req);
+      const user = await getUserBySessionToken(token);
+      if (!user) {
+        return Response.json(
+          {
+            ok: false,
+            error: `模型 "${effectiveModel}" 需要登录后才能使用。`,
+            model: effectiveModel,
+            baseUrl: effectiveBase,
+          },
+          { status: 401 },
+        );
+      }
+    }
+  }
 
   if (!isAllowedUrl(effectiveBase)) {
     return Response.json(

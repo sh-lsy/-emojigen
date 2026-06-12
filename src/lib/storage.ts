@@ -5,19 +5,52 @@ import { genId } from "./utils";
 const STORAGE_KEY = "emojigen:history:v1";
 const MAX_HISTORY = 24;
 
+export type ThinkingEffort = "low" | "medium" | "high";
+
+export interface ThinkingConfig {
+  enabled: boolean;
+  effort: ThinkingEffort;
+}
+
 export interface Settings {
   apiKey: string;
   baseUrl: string;
   model: string;
+  /** Per-model thinking config, keyed by model name. */
+  thinkingByModel: Record<string, ThinkingConfig>;
 }
 
 const SETTINGS_KEY = "emojigen:settings:v1";
 
 const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
-  baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-  model: "glm-4-flash",
+  baseUrl: "https://token.sensenova.cn/v1",
+  model: "sensenova-6.7-flash-lite",
+  thinkingByModel: {},
 };
+
+export function getThinkingForModel(
+  settings: Settings,
+  model: string,
+): ThinkingConfig {
+  return settings.thinkingByModel[model.trim()] ?? { enabled: false, effort: "low" };
+}
+
+export function setThinkingForModel(
+  settings: Settings,
+  model: string,
+  patch: Partial<ThinkingConfig>,
+): Settings {
+  const key = model.trim();
+  const current = settings.thinkingByModel[key] ?? { enabled: false, effort: "low" };
+  return {
+    ...settings,
+    thinkingByModel: {
+      ...settings.thinkingByModel,
+      [key]: { ...current, ...patch },
+    },
+  };
+}
 
 export function loadHistory(): Generation[] {
   if (typeof window === "undefined") return [];
