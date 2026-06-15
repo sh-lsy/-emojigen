@@ -110,6 +110,7 @@ export default function EmojiGenerator() {
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [serverBase, setServerBase] = useState<string | null>(null);
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
@@ -118,16 +119,31 @@ export default function EmojiGenerator() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
+  const effectivePresets = useMemo(
+    () =>
+      PRESETS.map((p) => ({
+        ...p,
+        useServerKey: !!serverBase && p.baseUrl === serverBase,
+        isDefault: !!serverBase && p.baseUrl === serverBase,
+      })),
+    [serverBase],
+  );
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/auth/me", { cache: "no-store" });
-        const data = await res.json();
+        const [meRes, cfgRes] = await Promise.all([
+          fetch("/api/auth/me", { cache: "no-store" }),
+          fetch("/api/config", { cache: "no-store" }),
+        ]);
+        const me = await meRes.json();
+        const cfg = await cfgRes.json();
         if (cancelled) return;
-        setUser(data.user || null);
+        setUser(me.user || null);
+        if (cfg.hasServerKey) setServerBase(cfg.serverBase);
         const loaded = loadSettings();
-        if (!data.user && RESTRICTED_MODELS.has(loaded.model)) {
+        if (!me.user && RESTRICTED_MODELS.has(loaded.model)) {
           loaded.model = "sensenova-6.7-flash-lite";
         }
         setSettings(loaded);
@@ -390,8 +406,8 @@ export default function EmojiGenerator() {
   }
 
   const currentPreset = useMemo(
-    () => PRESETS.find((p) => p.baseUrl === settings.baseUrl && p.model === settings.model),
-    [settings.baseUrl, settings.model]
+    () => effectivePresets.find((p) => p.baseUrl === settings.baseUrl && p.model === settings.model),
+    [effectivePresets, settings.baseUrl, settings.model]
   );
   const needsApiKey = !settings.apiKey && !currentPreset?.useServerKey;
 
@@ -437,6 +453,7 @@ export default function EmojiGenerator() {
               settings={settings}
               setSettings={(s) => { setSettings(s); saveSettings(s); }}
               user={user}
+              presets={effectivePresets}
             />
 
             {needsApiKey && (
@@ -593,6 +610,7 @@ export default function EmojiGenerator() {
             setActiveConfigId(id);
           }}
           user={user}
+          presets={effectivePresets}
         />
       )}
 
@@ -862,25 +880,19 @@ function StyleGrid({
 
 /* ─────────────────────────── ModelRow (dropdown + thinking) ─────────────────────────── */
 
-// Group presets by baseUrl for the dropdown sections
-function groupPresets(presets: typeof ModelPresets) {
-  const groups: { host: string; label: string; presets: typeof ModelPresets }[] = [];
-  const hostLabels: Record<string, string> = {
-    "https://token.sensenova.cn/v1": "商汤日日新",
-    "https://api.openai.com/v1": "OpenAI",
-    "https://api.deepseek.com/v1": "DeepSeek",
-    "https://open.bigmodel.cn/api/paas/v4": "智谱 AI",
-    "https://dashscope.aliyuncs.com/compatible-mode/v1": "阿里通义",
-    "http://localhost:11434/v1": "本地 Ollama",
-  };
+// Group presets for the dropdown: server-key first, then need-user-key
+function groupPresets(
+  presets: typeof ModelPresets,
+): { key: string; label: string; presets: typeof ModelPresets }[] {
+  const serverKey: typeof ModelPresets = [];
+  const userKey: typeof ModelPresets = [];
   for (const p of presets) {
-    let group = groups.find((g) => g.host === p.baseUrl);
-    if (!group) {
-      group = { host: p.baseUrl, label: hostLabels[p.baseUrl] || p.baseUrl.replace(/^https?:\/\//, ""), presets: [] };
-      groups.push(group);
-    }
-    group.presets.push(p);
+    if (p.useServerKey) serverKey.push(p);
+    else userKey.push(p);
   }
+  const groups: { key: string; label: string; presets: typeof ModelPresets }[] = [];
+  if (serverKey.length) groups.push({ key: "server", label: "已配置 (服务器自带 Key)", presets: serverKey });
+  if (userKey.length) groups.push({ key: "user", label: "自备 API Key", presets: userKey });
   return groups;
 }
 
@@ -888,12 +900,14 @@ function ModelRow({
   settings,
   setSettings,
   user,
+  presets,
 }: {
   settings: AppSettings;
   setSettings: (s: AppSettings) => void;
   user: SessionUser | null;
+  presets: typeof ModelPresets;
 }) {
-  const current = PRESETS.find(
+  const current = presets.find(
     (p) => p.baseUrl === settings.baseUrl && p.model === settings.model,
   );
   const supportsThinking = !!current?.supportsThinking;
@@ -919,6 +933,7 @@ function ModelRow({
           settings={settings}
           onSelect={selectPreset}
           user={user}
+          presets={presets}
         />
         {supportsThinking && tc && (
           <ThinkingToggle
@@ -937,10 +952,12 @@ function ModelSelect({
   settings,
   onSelect,
   user,
+  presets,
 }: {
   settings: AppSettings;
   onSelect: (p: typeof ModelPresets[number]) => void;
   user: SessionUser | null;
+  presets: typeof ModelPresets;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -961,11 +978,11 @@ function ModelSelect({
     };
   }, [open]);
 
-  const current = PRESETS.find(
+  const current = presets.find(
     (p) => p.baseUrl === settings.baseUrl && p.model === settings.model,
   );
 
-  const groups = groupPresets(PRESETS);
+  const groups = groupPresets(presets);
 
   return (
     <div ref={ref} className="relative min-w-0 flex-1">
@@ -1001,7 +1018,7 @@ function ModelSelect({
       {open && (
         <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-[60vh] overflow-auto rounded-2xl border border-stone-200/80 bg-white/95 p-1.5 shadow-2xl shadow-stone-900/10 backdrop-blur-xl animate-fade-in dark:border-zinc-800 dark:bg-zinc-900/95">
           {groups.map((g) => (
-            <div key={g.host} className="mb-1 last:mb-0">
+            <div key={g.key} className="mb-1 last:mb-0">
               <div className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
                 {g.label}
               </div>
@@ -1682,8 +1699,9 @@ function SettingsDialog(props: {
   onRenameConfig: (id: string, name: string) => void;
   onActivateConfig: (id: string) => void;
   user: SessionUser | null;
+  presets: typeof ModelPresets;
 }) {
-  const { onClose, value, onChange, configs, activeConfigId, onAddConfig, onRemoveConfig, onRenameConfig, onActivateConfig, user } = props;
+  const { onClose, value, onChange, configs, activeConfigId, onAddConfig, onRemoveConfig, onRenameConfig, onActivateConfig, user, presets } = props;
   const [draft, setDraft] = useState(value);
   const [show, setShow] = useState(false);
   const [testState, setTestState] = useState<TestState>({ kind: "idle" });
@@ -1794,7 +1812,7 @@ function SettingsDialog(props: {
           )}
 
           {(() => {
-            const matchedPreset = PRESETS.find(
+            const matchedPreset = presets.find(
               (p) => p.baseUrl === draft.baseUrl && p.model === draft.model,
             );
             if (!matchedPreset && draft.baseUrl && draft.model) {
@@ -1814,7 +1832,7 @@ function SettingsDialog(props: {
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-stone-700 dark:text-stone-300">快速预设</label>
             <div className="mb-3 flex flex-wrap items-center gap-1.5">
-              {PRESETS.map((p) => {
+              {presets.map((p) => {
                 const locked = p.requireAuth && !user;
                 const active = draft.baseUrl === p.baseUrl && draft.model === p.model;
                 return (
@@ -1950,7 +1968,7 @@ function SettingsDialog(props: {
           </div>
 
           {(() => {
-            const matchedPreset = PRESETS.find(
+            const matchedPreset = presets.find(
               (p) => p.baseUrl === draft.baseUrl && p.model === draft.model,
             );
             const isCustom = !draft.baseUrl && !draft.model;
