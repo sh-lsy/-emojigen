@@ -7,7 +7,7 @@ import { Wand2, Eye, EyeOff, LogIn, AlertCircle, Loader2, Sparkles } from "lucid
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,9 +29,7 @@ export default function LoginPage() {
         if (!cancelled) setChecking(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [router]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -97,7 +95,7 @@ export default function LoginPage() {
               onChange={(e) => setUsername(e.target.value)}
               required
               className="w-full rounded-xl border border-stone-200 bg-white/90 px-3.5 py-2.5 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 focus:border-rose-400 focus:ring-4 focus:ring-rose-100 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-stone-100 dark:placeholder:text-zinc-500 dark:focus:border-rose-400 dark:focus:ring-rose-500/10"
-              placeholder="admin"
+              placeholder="请输入用户名"
             />
           </div>
 
@@ -151,10 +149,7 @@ export default function LoginPage() {
           </p>
         </form>
 
-        <div className="mt-4 flex items-center gap-2 rounded-2xl border border-stone-200/60 bg-white/50 p-2.5 text-[11px] text-stone-500 backdrop-blur dark:border-zinc-800/60 dark:bg-zinc-900/50 dark:text-zinc-500">
-          <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-          <span>默认管理员账号：<code className="font-mono text-stone-700 dark:text-zinc-300">admin / adminshwl</code></span>
-        </div>
+
       </div>
     </div>
   );

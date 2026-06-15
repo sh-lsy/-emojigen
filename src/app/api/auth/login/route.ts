@@ -1,8 +1,8 @@
-import crypto from "crypto";
 import {
   buildSessionCookie,
   createSession,
   ensureAdminUser,
+  getAdminCredentials,
   readSessionCookie,
   verifyCredentials,
 } from "@/lib/auth";
@@ -15,8 +15,7 @@ interface LoginBody {
 }
 
 export async function POST(req: Request) {
-  const adminUser = process.env.ADMIN_USER || "admin";
-  const adminPass = process.env.ADMIN_PASSWORD || crypto.randomBytes(16).toString("hex");
+  const { username: adminUser, password: adminPass } = getAdminCredentials();
   await ensureAdminUser(adminUser, adminPass);
 
   let body: LoginBody;

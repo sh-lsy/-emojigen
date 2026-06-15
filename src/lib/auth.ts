@@ -179,6 +179,15 @@ export function buildSessionCookie(token: string): string {
   return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
 }
 
+let _cachedAdminPass: string | null = null;
+
+export function getAdminCredentials(): { username: string; password: string } {
+  const username = process.env.ADMIN_USER || "admin";
+  if (_cachedAdminPass) return { username, password: _cachedAdminPass };
+  _cachedAdminPass = process.env.ADMIN_PASSWORD || crypto.randomBytes(16).toString("hex");
+  return { username, password: _cachedAdminPass };
+}
+
 export function buildLogoutCookie(): string {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
